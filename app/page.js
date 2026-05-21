@@ -17,6 +17,13 @@ const PRESETS = [{ label: '25/5', work: 25, brk: 5 }, { label: '50/10', work: 50
 
 const mkEntry = () => ({ id: String(Date.now()), text: '', type: 'todo', mode: 'work', urgency: 'medium', priority: 'medium', status: 'pending', dueDate: '', dueTime: '', createdAt: new Date().toISOString(), notionPageId: null, notified: false })
 
+const NotionLogo = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+    <path d="M6.017 4.313l55.333-4.087c6.797-.583 8.543-.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277-1.553 6.807-6.99 7.193L24.467 99.967c-4.08.193-6.023-.387-8.16-3.113L3.3 79.94c-2.333-3.113-3.3-5.443-3.3-8.167V11.113c0-3.497 1.553-6.413 6.017-6.8z"/>
+    <path fill="white" d="M61.35.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257-3.883c5.44-.387 6.99-2.917 6.99-7.193V19.64c0-2.21-.827-2.86-3.3-4.733L74.167 3.143C69.893.033 68.147-.357 61.35.227zM25.92 19.523c-5.247.353-6.437.433-9.417-1.99L8.927 11.4c-.777-.78-.39-1.753.97-1.947l53.2-3.887c4.467-.39 6.797 1.167 8.543 2.527l9.123 6.61c.39.197 1.363 1.36.193 1.36l-54.84 3.307-.197.153zM19.68 88.163V30.48c0-2.527.777-3.697 3.107-3.893L85.5 22.78c2.137-.193 3.107 1.167 3.107 3.693v57.1c0 2.527-.97 4.277-3.883 4.47l-60.543 3.5c-2.913.193-4.5-.973-4.5-3.38zm59.96-54.827c.387 1.75 0 3.5-1.75 3.697l-2.91.577v42.773c-2.527 1.36-4.857 2.137-6.8 2.137-3.107 0-3.883-.97-6.21-3.883l-19.03-29.96v28.99l6.02 1.363s0 3.5-4.857 3.5l-13.39.777c-.39-.78 0-2.723 1.357-3.11l3.497-.97V36.48L29.37 36.1c-.387-1.75.58-4.277 3.3-4.473l14.367-.967 19.8 30.353V33.973l-5.062-.58c-.39-2.143 1.163-3.697 3.103-3.89l13.763-.777z"/>
+  </svg>
+)
+
 function useLocal(key, init) {
   const [val, setVal] = useState(() => {
     if (typeof window === 'undefined') return init
@@ -40,27 +47,23 @@ const badge = (label, color) => (
   <span style={{ background: color + '22', color, border: `1px solid ${color}44`, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 500 }}>{label}</span>
 )
 
-const Sel = ({ val, set, opts, colors }) => (
-  <select value={val} onChange={e => set(e.target.value)} style={{ fontSize: 12, padding: '3px 6px', borderRadius: 6, border: '1px solid #ddd', color: colors?.[val] || '#333', background: '#fff' }}>
-    {opts.map(o => <option key={o} value={o}>{o}</option>)}
-  </select>
-)
-
-function EntryCard({ entry: e, onEdit, onDelete, onCycleStatus, onLink, mode }) {
+function EntryCard({ entry: e, onEdit, onDelete, onCycleStatus, onLink, mode, dark }) {
   const mc = { work: '#185FA5', life: '#0F6E56', mixed: '#7F77DD' }
   const done = e.status === 'done'
+  const cardBg = dark ? '#1e1e1e' : '#fff'
+  const textColor = dark ? '#e0e0e0' : '#111'
   return (
-    <div style={{ background: '#fff', border: `1px solid ${e.urgency === 'high' && !done ? '#E24B4A44' : '#eee'}`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, opacity: done ? 0.6 : 1 }}>
+    <div style={{ background: cardBg, border: `1px solid ${e.urgency === 'high' && !done ? '#E24B4A44' : dark ? '#333' : '#eee'}`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, opacity: done ? 0.6 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <button onClick={() => onCycleStatus(e.id)} style={{ marginTop: 2, width: 18, height: 18, borderRadius: '50%', border: `2px solid ${statusColors[e.status]}`, background: done ? statusColors.done : 'transparent', cursor: 'pointer', flexShrink: 0 }} />
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, textDecoration: done ? 'line-through' : 'none', marginBottom: 4, color: '#111' }}>{e.text}</div>
+          <div style={{ fontSize: 14, textDecoration: done ? 'line-through' : 'none', marginBottom: 4, color: textColor }}>{e.text}</div>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
             {badge(e.type, typeColors[e.type])}
             {e.type === 'todo' && <>{badge(`U:${e.urgency}`, urgencyColors[e.urgency])}{badge(`P:${e.priority}`, priorityColors[e.priority])}{badge(e.status, statusColors[e.status])}</>}
             {mode === 'mixed' && badge(e.mode, mc[e.mode])}
-            {e.dueDate && <span style={{ fontSize: 11, color: '#888' }}>📅 {e.dueDate}{e.dueTime ? ` ${e.dueTime}` : ''}</span>}
-            {e.notionPageId && <span style={{ fontSize: 11, color: '#7F77DD' }} title="Synced to Notion">N</span>}
+            {e.dueDate && <span style={{ fontSize: 11, color: dark ? '#aaa' : '#888' }}>📅 {e.dueDate}{e.dueTime ? ` ${e.dueTime}` : ''}</span>}
+            {e.notionPageId && <span style={{ fontSize: 11, color: '#7F77DD', display: 'inline-flex', alignItems: 'center', gap: 3 }}><NotionLogo size={12} /> synced</span>}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -74,6 +77,7 @@ function EntryCard({ entry: e, onEdit, onDelete, onCycleStatus, onLink, mode }) 
 }
 
 export default function App() {
+  const [dark, setDark] = useLocal('fbdp_dark', false)
   const [mode, setMode] = useLocal('fbdp_mode', 'work')
   const [entries, setEntries] = useLocal('fbdp_entries', [])
   const [sessions, setSessions] = useLocal('fbdp_sessions', [])
@@ -94,6 +98,15 @@ export default function App() {
   const [pulling, setPulling] = useState(false)
   const intervalRef = useRef(null)
   const notifRef = useRef(false)
+
+  // Theme colors
+  const bg = dark ? '#121212' : '#ffffff'
+  const bgSecondary = dark ? '#1e1e1e' : '#f5f5f5'
+  const bgTertiary = dark ? '#2a2a2a' : '#eeeeee'
+  const text = dark ? '#e0e0e0' : '#111111'
+  const textMuted = dark ? '#aaaaaa' : '#666666'
+  const border = dark ? '#333333' : '#dddddd'
+  const inputBg = dark ? '#2a2a2a' : '#ffffff'
 
   useEffect(() => {
     if (Notification?.permission === 'granted') notifRef.current = true
@@ -146,7 +159,6 @@ export default function App() {
   }, [entries])
 
   function notify(msg) { if (notifRef.current) new Notification('Focus Hub', { body: msg }) }
-
   function showSync(msg) { setSyncMsg(msg); setTimeout(() => setSyncMsg(''), 4000) }
 
   const visible = entries.filter(e => {
@@ -166,11 +178,9 @@ export default function App() {
     const updated = editId
       ? { ...entries.find(e => e.id === editId), ...draft, mode: entryMode }
       : { ...draft, id: String(Date.now()), createdAt: new Date().toISOString(), mode: entryMode }
-
     if (editId) setEntries(prev => prev.map(e => e.id === editId ? updated : e))
     else setEntries(prev => [updated, ...prev])
     setDraft(mkEntry()); setShowForm(false); setEditId(null)
-
     try {
       if (updated.notionPageId) {
         await notionAPI({ action: 'update', entry: updated })
@@ -217,161 +227,168 @@ export default function App() {
   function deleteEntry(id) { setEntries(prev => prev.filter(e => e.id !== id)) }
   function cycleStatus(id) { setEntries(prev => prev.map(e => e.id !== id ? e : { ...e, status: STATUS[(STATUS.indexOf(e.status) + 1) % STATUS.length] })) }
 
+  const selStyle = { fontSize: 12, padding: '3px 6px', borderRadius: 6, border: `1px solid ${border}`, color: text, background: inputBg }
+  const Sel = ({ val, set, opts, colors }) => (
+    <select value={val} onChange={e => set(e.target.value)} style={{ ...selStyle, color: colors?.[val] || text }}>
+      {opts.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  )
+
+  const btnOutline = { padding: '6px 14px', borderRadius: 8, border: `1px solid ${border}`, background: 'transparent', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, color: textMuted }
   const r = 54, circ = 2 * Math.PI * r
   const totalSecs = (timerPhase === 'work' ? preset.work : preset.brk) * 60
   const progress = 1 - timerSecs / totalSecs
 
-  const btnStyle = (active, color) => ({
-    padding: '5px 10px', borderRadius: 8,
-    border: `1.5px solid ${active ? color : '#ddd'}`,
-    background: active ? color + '18' : 'transparent',
-    color: active ? color : '#666',
-    fontWeight: active ? 500 : 400, fontSize: 13, cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: 4
-  })
-
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: '1rem 0.75rem', fontFamily: 'system-ui, sans-serif' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-        <span style={{ fontWeight: 500, fontSize: 18 }}>🧠 Focus Hub</span>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {MODES.map(m => (
-            <button key={m} onClick={() => setMode(m)} style={btnStyle(mode === m, modeColors[m])}>
-              {modeIcons[m]} {m.charAt(0).toUpperCase() + m.slice(1)}
+    <div style={{ background: bg, minHeight: '100vh', color: text, fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ maxWidth: 700, margin: '0 auto', padding: '1rem 0.75rem' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+          <span style={{ fontWeight: 500, fontSize: 18, color: text }}>🧠 Focus Hub</span>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            {MODES.map(m => (
+              <button key={m} onClick={() => setMode(m)} style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${mode === m ? modeColors[m] : border}`, background: mode === m ? modeColors[m] + '18' : 'transparent', color: mode === m ? modeColors[m] : textMuted, fontWeight: mode === m ? 500 : 400, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                {modeIcons[m]} {m.charAt(0).toUpperCase() + m.slice(1)}
+              </button>
+            ))}
+            <button onClick={() => setDark(d => !d)} title="Toggle dark mode" style={{ marginLeft: 4, padding: '5px 10px', borderRadius: 8, border: `1px solid ${border}`, background: 'transparent', cursor: 'pointer', fontSize: 16 }}>
+              {dark ? '☀️' : '🌙'}
+            </button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: '1rem' }}>
+          {[
+            { label: 'Urgent', val: urgent.length, color: '#E24B4A' },
+            { label: 'In progress', val: inProg.length, color: '#378ADD' },
+            { label: 'Pending', val: visible.filter(e => e.status === 'pending').length, color: '#888' },
+            { label: 'Done', val: visible.filter(e => e.status === 'done').length, color: '#0F6E56' },
+          ].map(s => (
+            <div key={s.label} style={{ background: bgSecondary, borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 500, color: s.color }}>{s.val}</div>
+              <div style={{ fontSize: 12, color: textMuted, marginTop: 2 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: `1px solid ${border}`, marginBottom: '1rem' }}>
+          {[{ id: 'dump', label: '🧠 Brain dump' }, { id: 'timer', label: '⏱ Focus timer' }, { id: 'sessions', label: '📋 Sessions' }].map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{ padding: '8px 16px', background: 'transparent', border: 'none', borderBottom: activeTab === t.id ? `2px solid ${modeColors[mode]}` : '2px solid transparent', color: activeTab === t.id ? modeColors[mode] : textMuted, fontWeight: activeTab === t.id ? 500 : 400, fontSize: 14, cursor: 'pointer' }}>
+              {t.label}
             </button>
           ))}
         </div>
-      </div>
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: '1rem' }}>
-        {[
-          { label: 'Urgent', val: urgent.length, color: '#E24B4A' },
-          { label: 'In progress', val: inProg.length, color: '#378ADD' },
-          { label: 'Pending', val: visible.filter(e => e.status === 'pending').length, color: '#888' },
-          { label: 'Done', val: visible.filter(e => e.status === 'done').length, color: '#0F6E56' },
-        ].map(s => (
-          <div key={s.label} style={{ background: '#f5f5f5', borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
-            <div style={{ fontSize: 22, fontWeight: 500, color: s.color }}>{s.val}</div>
-            <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #eee', marginBottom: '1rem' }}>
-        {[{ id: 'dump', label: '🧠 Brain dump' }, { id: 'timer', label: '⏱ Focus timer' }, { id: 'sessions', label: '📋 Sessions' }].map(t => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{ padding: '8px 16px', background: 'transparent', border: 'none', borderBottom: activeTab === t.id ? `2px solid ${modeColors[mode]}` : '2px solid transparent', color: activeTab === t.id ? modeColors[mode] : '#666', fontWeight: activeTab === t.id ? 500 : 400, fontSize: 14, cursor: 'pointer' }}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* BRAIN DUMP */}
-      {activeTab === 'dump' && (
-        <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: '#666' }}>Filter:</span>
-            <Sel val={filterType} set={setFilterType} opts={['all', ...TYPES]} />
-            <Sel val={filterStatus} set={setFilterStatus} opts={['all', ...STATUS]} />
-            <Sel val={filterUrgency} set={setFilterUrgency} opts={['all', ...URGENCY]} />
-            <button onClick={() => { setShowForm(!showForm); setEditId(null); setDraft({ ...mkEntry(), mode: mode === 'mixed' ? 'work' : mode }) }} style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 8, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>
-              + Add entry
-            </button>
-          </div>
-
-          {showForm && (
-            <div style={{ background: '#f9f9f9', borderRadius: 12, border: '1px solid #eee', padding: '1rem', marginBottom: '1rem' }}>
-              <textarea value={draft.text} onChange={e => setDraft(d => ({ ...d, text: e.target.value }))} placeholder="Brain dump here..." style={{ width: '100%', minHeight: 70, borderRadius: 8, border: '1px solid #ddd', padding: '8px 10px', fontSize: 14, resize: 'vertical', boxSizing: 'border-box' }} />
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: '#666' }}>Type</label><Sel val={draft.type} set={v => setDraft(d => ({ ...d, type: v }))} opts={TYPES} colors={typeColors} /></div>
-                {mode === 'mixed' && <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: '#666' }}>Context</label><Sel val={draft.mode} set={v => setDraft(d => ({ ...d, mode: v }))} opts={['work', 'life']} /></div>}
-                {draft.type === 'todo' && <>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: '#666' }}>Urgency</label><Sel val={draft.urgency} set={v => setDraft(d => ({ ...d, urgency: v }))} opts={URGENCY} colors={urgencyColors} /></div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: '#666' }}>Priority</label><Sel val={draft.priority} set={v => setDraft(d => ({ ...d, priority: v }))} opts={PRIORITY} colors={priorityColors} /></div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: '#666' }}>Status</label><Sel val={draft.status} set={v => setDraft(d => ({ ...d, status: v }))} opts={STATUS} colors={statusColors} /></div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: '#666' }}>Due date</label><input type="date" value={draft.dueDate} onChange={e => setDraft(d => ({ ...d, dueDate: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px', borderRadius: 6, border: '1px solid #ddd' }} /></div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: '#666' }}>Due time</label><input type="time" value={draft.dueTime} onChange={e => setDraft(d => ({ ...d, dueTime: e.target.value }))} style={{ fontSize: 12, padding: '3px 6px', borderRadius: 6, border: '1px solid #ddd' }} /></div>
-                </>}
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button onClick={saveEntry} style={{ padding: '6px 16px', borderRadius: 8, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>{editId ? 'Update' : 'Save & sync'}</button>
-                <button onClick={() => { setShowForm(false); setEditId(null) }} style={{ padding: '6px 12px', borderRadius: 8, background: 'transparent', border: '1px solid #ddd', fontSize: 13, cursor: 'pointer', color: '#666' }}>Cancel</button>
-              </div>
-            </div>
-          )}
-
-          {urgent.length > 0 && <div style={{ marginBottom: '0.75rem' }}><div style={{ fontSize: 12, fontWeight: 500, color: '#E24B4A', marginBottom: 4 }}>⚠️ Urgent</div>{urgent.map(e => <EntryCard key={e.id} entry={e} onEdit={startEdit} onDelete={deleteEntry} onCycleStatus={cycleStatus} onLink={() => { setLinkedTask(e.text.slice(0, 40)); setActiveTab('timer') }} mode={mode} />)}</div>}
-          {inProg.length > 0 && <div style={{ marginBottom: '0.75rem' }}><div style={{ fontSize: 12, fontWeight: 500, color: '#378ADD', marginBottom: 4 }}>▶ In progress</div>{inProg.map(e => <EntryCard key={e.id} entry={e} onEdit={startEdit} onDelete={deleteEntry} onCycleStatus={cycleStatus} onLink={() => { setLinkedTask(e.text.slice(0, 40)); setActiveTab('timer') }} mode={mode} />)}</div>}
-          {visible.filter(e => e.status === 'pending' && e.urgency !== 'high').length > 0 && <div style={{ marginBottom: '0.75rem' }}><div style={{ fontSize: 12, fontWeight: 500, color: '#888', marginBottom: 4 }}>Pending</div>{visible.filter(e => e.status === 'pending' && e.urgency !== 'high').map(e => <EntryCard key={e.id} entry={e} onEdit={startEdit} onDelete={deleteEntry} onCycleStatus={cycleStatus} onLink={() => { setLinkedTask(e.text.slice(0, 40)); setActiveTab('timer') }} mode={mode} />)}</div>}
-          {visible.filter(e => e.status === 'done').length > 0 && <details><summary style={{ fontSize: 13, color: '#888', cursor: 'pointer' }}>Completed ({visible.filter(e => e.status === 'done').length})</summary><div style={{ marginTop: 6 }}>{visible.filter(e => e.status === 'done').map(e => <EntryCard key={e.id} entry={e} onEdit={startEdit} onDelete={deleteEntry} onCycleStatus={cycleStatus} onLink={() => {}} mode={mode} />)}</div></details>}
-          {visible.length === 0 && !showForm && <div style={{ textAlign: 'center', color: '#aaa', fontSize: 14, padding: '2rem 0' }}>Your brain dump is empty. Hit "Add entry" to start.</div>}
-
-          <div style={{ marginTop: '1.5rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button onClick={pushAll} disabled={syncing || pulling} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #ddd', background: 'transparent', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, color: '#666' }}>
-                ⬆️ {syncing ? 'Pushing...' : 'Push to Notion'}
+        {/* BRAIN DUMP */}
+        {activeTab === 'dump' && (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: textMuted }}>Filter:</span>
+              <Sel val={filterType} set={setFilterType} opts={['all', ...TYPES]} />
+              <Sel val={filterStatus} set={setFilterStatus} opts={['all', ...STATUS]} />
+              <Sel val={filterUrgency} set={setFilterUrgency} opts={['all', ...URGENCY]} />
+              <button onClick={() => { setShowForm(!showForm); setEditId(null); setDraft({ ...mkEntry(), mode: mode === 'mixed' ? 'work' : mode }) }} style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 8, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>
+                + Add entry
               </button>
-              <button onClick={pullAll} disabled={syncing || pulling} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #ddd', background: 'transparent', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, color: '#666' }}>
-                ⬇️ {pulling ? 'Pulling...' : 'Pull from Notion'}
-              </button>
-              <a href={NOTION_URL} target="_blank" rel="noreferrer" style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #ddd', background: 'transparent', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, color: '#666', textDecoration: 'none' }}>↗ Open in Notion</a>
-              <a href="https://calendar.google.com" target="_blank" rel="noreferrer" style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #ddd', background: 'transparent', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, color: '#666', textDecoration: 'none' }}>📅 Google Calendar</a>
-              {syncMsg && <span style={{ fontSize: 12, color: syncMsg.includes('fail') ? '#E24B4A' : '#0F6E56' }}>{syncMsg}</span>}
             </div>
-            <p style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>Entries auto-sync to Notion on save. Push/Pull for bulk sync or to pick up edits made directly in Notion.</p>
-          </div>
-        </div>
-      )}
 
-      {/* TIMER */}
-      {activeTab === 'timer' && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {PRESETS.map((p, i) => (
-              <button key={i} onClick={() => { setPresetIdx(i); setTimerRunning(false); setTimerPhase('work') }} style={btnStyle(presetIdx === i, modeColors[mode])}>{p.label}</button>
+            {showForm && (
+              <div style={{ background: bgSecondary, borderRadius: 12, border: `1px solid ${border}`, padding: '1rem', marginBottom: '1rem' }}>
+                <textarea value={draft.text} onChange={e => setDraft(d => ({ ...d, text: e.target.value }))} placeholder="Brain dump here..." style={{ width: '100%', minHeight: 70, borderRadius: 8, border: `1px solid ${border}`, padding: '8px 10px', fontSize: 14, resize: 'vertical', boxSizing: 'border-box', background: inputBg, color: text }} />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Type</label><Sel val={draft.type} set={v => setDraft(d => ({ ...d, type: v }))} opts={TYPES} colors={typeColors} /></div>
+                  {mode === 'mixed' && <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Context</label><Sel val={draft.mode} set={v => setDraft(d => ({ ...d, mode: v }))} opts={['work', 'life']} /></div>}
+                  {draft.type === 'todo' && <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Urgency</label><Sel val={draft.urgency} set={v => setDraft(d => ({ ...d, urgency: v }))} opts={URGENCY} colors={urgencyColors} /></div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Priority</label><Sel val={draft.priority} set={v => setDraft(d => ({ ...d, priority: v }))} opts={PRIORITY} colors={priorityColors} /></div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Status</label><Sel val={draft.status} set={v => setDraft(d => ({ ...d, status: v }))} opts={STATUS} colors={statusColors} /></div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Due date</label><input type="date" value={draft.dueDate} onChange={e => setDraft(d => ({ ...d, dueDate: e.target.value }))} style={{ ...selStyle }} /></div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Due time</label><input type="time" value={draft.dueTime} onChange={e => setDraft(d => ({ ...d, dueTime: e.target.value }))} style={{ ...selStyle }} /></div>
+                  </>}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button onClick={saveEntry} style={{ padding: '6px 16px', borderRadius: 8, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>{editId ? 'Update' : 'Save & sync'}</button>
+                  <button onClick={() => { setShowForm(false); setEditId(null) }} style={{ padding: '6px 12px', borderRadius: 8, background: 'transparent', border: `1px solid ${border}`, fontSize: 13, cursor: 'pointer', color: textMuted }}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {urgent.length > 0 && <div style={{ marginBottom: '0.75rem' }}><div style={{ fontSize: 12, fontWeight: 500, color: '#E24B4A', marginBottom: 4 }}>⚠️ Urgent</div>{urgent.map(e => <EntryCard key={e.id} entry={e} onEdit={startEdit} onDelete={deleteEntry} onCycleStatus={cycleStatus} onLink={() => { setLinkedTask(e.text.slice(0, 40)); setActiveTab('timer') }} mode={mode} dark={dark} />)}</div>}
+            {inProg.length > 0 && <div style={{ marginBottom: '0.75rem' }}><div style={{ fontSize: 12, fontWeight: 500, color: '#378ADD', marginBottom: 4 }}>▶ In progress</div>{inProg.map(e => <EntryCard key={e.id} entry={e} onEdit={startEdit} onDelete={deleteEntry} onCycleStatus={cycleStatus} onLink={() => { setLinkedTask(e.text.slice(0, 40)); setActiveTab('timer') }} mode={mode} dark={dark} />)}</div>}
+            {visible.filter(e => e.status === 'pending' && e.urgency !== 'high').length > 0 && <div style={{ marginBottom: '0.75rem' }}><div style={{ fontSize: 12, fontWeight: 500, color: textMuted, marginBottom: 4 }}>Pending</div>{visible.filter(e => e.status === 'pending' && e.urgency !== 'high').map(e => <EntryCard key={e.id} entry={e} onEdit={startEdit} onDelete={deleteEntry} onCycleStatus={cycleStatus} onLink={() => { setLinkedTask(e.text.slice(0, 40)); setActiveTab('timer') }} mode={mode} dark={dark} />)}</div>}
+            {visible.filter(e => e.status === 'done').length > 0 && <details><summary style={{ fontSize: 13, color: textMuted, cursor: 'pointer' }}>Completed ({visible.filter(e => e.status === 'done').length})</summary><div style={{ marginTop: 6 }}>{visible.filter(e => e.status === 'done').map(e => <EntryCard key={e.id} entry={e} onEdit={startEdit} onDelete={deleteEntry} onCycleStatus={cycleStatus} onLink={() => {}} mode={mode} dark={dark} />)}</div></details>}
+            {visible.length === 0 && !showForm && <div style={{ textAlign: 'center', color: textMuted, fontSize: 14, padding: '2rem 0' }}>Your brain dump is empty. Hit "Add entry" to start.</div>}
+
+            <div style={{ marginTop: '1.5rem', borderTop: `1px solid ${border}`, paddingTop: '1rem' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={pushAll} disabled={syncing || pulling} style={btnOutline}>
+                  <NotionLogo size={15} /> {syncing ? 'Pushing...' : 'Push to Notion'}
+                </button>
+                <button onClick={pullAll} disabled={syncing || pulling} style={btnOutline}>
+                  <NotionLogo size={15} /> {pulling ? 'Pulling...' : 'Pull from Notion'}
+                </button>
+                <a href={NOTION_URL} target="_blank" rel="noreferrer" style={{ ...btnOutline, textDecoration: 'none' }}>
+                  <NotionLogo size={15} /> Open in Notion
+                </a>
+                <a href="https://calendar.google.com" target="_blank" rel="noreferrer" style={{ ...btnOutline, textDecoration: 'none' }}>📅 Google Calendar</a>
+                {syncMsg && <span style={{ fontSize: 12, color: syncMsg.includes('fail') ? '#E24B4A' : '#0F6E56' }}>{syncMsg}</span>}
+              </div>
+              <p style={{ fontSize: 11, color: textMuted, marginTop: 8 }}>Entries auto-sync to Notion on save. Push/Pull for bulk sync or to pick up edits made directly in Notion.</p>
+            </div>
+          </div>
+        )}
+
+        {/* TIMER */}
+        {activeTab === 'timer' && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {PRESETS.map((p, i) => (
+                <button key={i} onClick={() => { setPresetIdx(i); setTimerRunning(false); setTimerPhase('work') }} style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${presetIdx === i ? modeColors[mode] : border}`, background: presetIdx === i ? modeColors[mode] + '18' : 'transparent', color: presetIdx === i ? modeColors[mode] : textMuted, fontSize: 13, cursor: 'pointer' }}>{p.label}</button>
+              ))}
+            </div>
+            <svg width="128" height="128" viewBox="0 0 128 128">
+              <circle cx="64" cy="64" r={r} fill="none" stroke={dark ? '#333' : '#eee'} strokeWidth="8" />
+              <circle cx="64" cy="64" r={r} fill="none" stroke={timerPhase === 'work' ? modeColors[mode] : '#0F6E56'} strokeWidth="8" strokeDasharray={circ} strokeDashoffset={circ * (1 - progress)} strokeLinecap="round" transform="rotate(-90 64 64)" style={{ transition: 'stroke-dashoffset 0.5s' }} />
+              <text x="64" y="60" textAnchor="middle" fontSize="22" fontWeight="500" fill={text}>{fmt(timerSecs)}</text>
+              <text x="64" y="78" textAnchor="middle" fontSize="12" fill={textMuted}>{timerPhase}</text>
+            </svg>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setTimerRunning(r => !r)} style={{ padding: '8px 28px', borderRadius: 10, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>
+                {timerRunning ? '⏸ Pause' : '▶ Start'}
+              </button>
+              <button onClick={() => { setTimerRunning(false); setTimerPhase('work'); setTimerSecs(preset.work * 60) }} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${border}`, background: 'transparent', fontSize: 14, cursor: 'pointer', color: text }}>↺</button>
+            </div>
+            <div style={{ width: '100%', background: bgSecondary, borderRadius: 12, padding: '12px 16px' }}>
+              <div style={{ fontSize: 12, color: textMuted, marginBottom: 6 }}>Linked task</div>
+              {linkedTask
+                ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><span style={{ fontSize: 14, color: text }}>{linkedTask}</span><button onClick={() => setLinkedTask(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: textMuted }}>✕</button></div>
+                : <div style={{ fontSize: 13, color: textMuted }}>No task linked. Tap ⏱ on a brain dump entry to link it.</div>}
+            </div>
+          </div>
+        )}
+
+        {/* SESSIONS */}
+        {activeTab === 'sessions' && (
+          <div>
+            <div style={{ fontSize: 14, color: textMuted, marginBottom: '0.75rem' }}>
+              Total sessions: <strong style={{ color: text }}>{sessions.length}</strong> &nbsp;|&nbsp; Total focus time: <strong style={{ color: text }}>{sessions.reduce((a, s) => a + (s.duration || 0), 0)} min</strong>
+            </div>
+            {sessions.length === 0 && <div style={{ textAlign: 'center', color: textMuted, fontSize: 14, padding: '2rem 0' }}>No sessions yet. Start the focus timer!</div>}
+            {sessions.map(s => (
+              <div key={s.id} style={{ background: bgSecondary, borderRadius: 10, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: text }}>{s.duration} min session</div>
+                  <div style={{ fontSize: 12, color: textMuted }}>{s.task || 'No task linked'}</div>
+                </div>
+                <div style={{ fontSize: 11, color: textMuted }}>{new Date(s.date).toLocaleDateString()}</div>
+              </div>
             ))}
           </div>
-          <svg width="128" height="128" viewBox="0 0 128 128">
-            <circle cx="64" cy="64" r={r} fill="none" stroke="#eee" strokeWidth="8" />
-            <circle cx="64" cy="64" r={r} fill="none" stroke={timerPhase === 'work' ? modeColors[mode] : '#0F6E56'} strokeWidth="8" strokeDasharray={circ} strokeDashoffset={circ * (1 - progress)} strokeLinecap="round" transform="rotate(-90 64 64)" style={{ transition: 'stroke-dashoffset 0.5s' }} />
-            <text x="64" y="60" textAnchor="middle" fontSize="22" fontWeight="500" fill="#111">{fmt(timerSecs)}</text>
-            <text x="64" y="78" textAnchor="middle" fontSize="12" fill="#888">{timerPhase}</text>
-          </svg>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => setTimerRunning(r => !r)} style={{ padding: '8px 28px', borderRadius: 10, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 15, cursor: 'pointer' }}>
-              {timerRunning ? '⏸ Pause' : '▶ Start'}
-            </button>
-            <button onClick={() => { setTimerRunning(false); setTimerPhase('work'); setTimerSecs(preset.work * 60) }} style={{ padding: '8px 16px', borderRadius: 10, border: '1px solid #ddd', background: 'transparent', fontSize: 14, cursor: 'pointer' }}>↺</button>
-          </div>
-          <div style={{ width: '100%', background: '#f5f5f5', borderRadius: 12, padding: '12px 16px' }}>
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Linked task</div>
-            {linkedTask
-              ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><span style={{ fontSize: 14 }}>{linkedTask}</span><button onClick={() => setLinkedTask(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>✕</button></div>
-              : <div style={{ fontSize: 13, color: '#aaa' }}>No task linked. Tap ⏱ on a brain dump entry to link it.</div>}
-          </div>
-        </div>
-      )}
-
-      {/* SESSIONS */}
-      {activeTab === 'sessions' && (
-        <div>
-          <div style={{ fontSize: 14, color: '#666', marginBottom: '0.75rem' }}>
-            Total sessions: <strong>{sessions.length}</strong> &nbsp;|&nbsp; Total focus time: <strong>{sessions.reduce((a, s) => a + (s.duration || 0), 0)} min</strong>
-          </div>
-          {sessions.length === 0 && <div style={{ textAlign: 'center', color: '#aaa', fontSize: 14, padding: '2rem 0' }}>No sessions yet. Start the focus timer!</div>}
-          {sessions.map(s => (
-            <div key={s.id} style={{ background: '#f5f5f5', borderRadius: 10, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{s.duration} min session</div>
-                <div style={{ fontSize: 12, color: '#666' }}>{s.task || 'No task linked'}</div>
-              </div>
-              <div style={{ fontSize: 11, color: '#aaa' }}>{new Date(s.date).toLocaleDateString()}</div>
-            </div>
-          ))}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
