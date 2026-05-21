@@ -70,23 +70,30 @@ const badge = (label, color) => (
 
 // ── Activity Clock Component ──────────────────────────────────────────────────
 function ActivityClock({ dark, agoMin, dur, onAgoChange, onDurChange }) {
-  const nowRef = useRef(0)
+  const [nowMin, setNowMin] = useState(0)
+  const [mounted, setMounted] = useState(false)
+  const dragging = useRef(null)
+  const startSvgRef = useRef(null)
+  const durSvgRef = useRef(null)
+
   useEffect(() => {
-    const n = new Date(); nowRef.current = n.getHours() * 60 + n.getMinutes()
+    const n = new Date()
+    setNowMin(n.getHours() * 60 + n.getMinutes())
+    setMounted(true)
   }, [])
 
-  const dragging = useRef(null)
-  const border = dark ? '#333' : '#eee'
+  const clr = dark ? '#333' : '#eee'
   const textColor = dark ? '#e0e0e0' : '#111'
   const mutedColor = dark ? '#aaa' : '#666'
 
   function snapStart(rawAgo) {
-    const rawStart = nowRef.current - rawAgo
+    const rawStart = nowMin - rawAgo
     const snapped = Math.round(rawStart / 5) * 5
-    return Math.max(0, Math.min(MAX_AGO, nowRef.current - snapped))
+    return Math.max(0, Math.min(MAX_AGO, nowMin - snapped))
   }
 
-  function angleFromEvent(e, el) {
+  function getAngle(e, el) {
+    if (!el) return 0
     const rect = el.getBoundingClientRect()
     const pt = e.touches ? e.touches[0] : e
     let a = Math.atan2(pt.clientY - (rect.top + rect.height / 2), pt.clientX - (rect.left + rect.width / 2)) * 180 / Math.PI + 90
@@ -94,22 +101,18 @@ function ActivityClock({ dark, agoMin, dur, onAgoChange, onDurChange }) {
     return a
   }
 
-  function handleDrag(e, type) {
-    const svgId = type === 'start' ? 'svg-start' : 'svg-dur'
-    const el = document.getElementById(svgId)
-    if (!el) return
-    const angle = angleFromEvent(e, el)
+  function applyDrag(e, type) {
+    const el = type === 'start' ? startSvgRef.current : durSvgRef.current
+    const angle = getAngle(e, el)
     if (type === 'start') {
-      const raw = (angle / 360) * MAX_AGO
-      onAgoChange(snapStart(raw))
+      onAgoChange(snapStart((angle / 360) * MAX_AGO))
     } else {
-      const raw = Math.round((angle / 360) * MAX_DUR / 5) * 5
-      onDurChange(Math.max(0, Math.min(MAX_DUR, raw)))
+      onDurChange(Math.max(0, Math.min(MAX_DUR, Math.round((angle / 360) * MAX_DUR / 5) * 5)))
     }
   }
 
   useEffect(() => {
-    const onMove = e => { if (dragging.current) handleDrag(e, dragging.current) }
+    const onMove = e => { if (dragging.current) { applyDrag(e, dragging.current); e.preventDefault() } }
     const onUp = () => { dragging.current = null }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('touchmove', onMove, { passive: false })
@@ -121,56 +124,56 @@ function ActivityClock({ dark, agoMin, dur, onAgoChange, onDurChange }) {
       window.removeEventListener('mouseup', onUp)
       window.removeEventListener('touchend', onUp)
     }
-  }, [agoMin, dur])
+  }, [nowMin, agoMin, dur])
 
-  function ClockSVG({ id, frac, color, centerText, subText, onStart }) {
+  const startMin = nowMin - agoMin
+  const startDisplay = !mounted ? '--:--' : agoMin === 0 ? 'now' : fmtTime(Math.round(startMin / 5) * 5)
+  const startSub = agoMin === 0 ? '' : `${agoMin}m ago`
+
+  function ClockFace({ svgRef, frac, color, label, centerText, subText, onPointerDown }) {
     const dash = frac * CIRC
     const angle = (frac * 360 - 90) * Math.PI / 180
     const hx = 80 + 64 * Math.cos(angle), hy = 80 + 64 * Math.sin(angle)
     return (
-      <svg id={id} width="160" height="160" style={{ cursor: 'pointer', touchAction: 'none', userSelect: 'none' }}
-        onMouseDown={e => { dragging.current = onStart; handleDrag(e, onStart) }}
-        onTouchStart={e => { dragging.current = onStart; handleDrag(e, onStart); e.preventDefault() }}>
-        <circle cx="80" cy="80" r="64" fill="none" stroke={border} strokeWidth="12" />
-        <circle cx="80" cy="80" r="64" fill="none" stroke={color} strokeWidth="12"
-          strokeDasharray={`${dash} ${CIRC - dash}`} strokeLinecap="round" transform="rotate(-90 80 80)" />
-        <circle cx={hx} cy={hy} r="7" fill={color} stroke={dark ? '#1e1e1e' : '#fff'} strokeWidth="2" />
-        <text x="80" y="76" textAnchor="middle" fontSize="16" fontWeight="500" fill={textColor}>{centerText}</text>
-        <text x="80" y="92" textAnchor="middle" fontSize="11" fill={mutedColor}>{subText}</text>
-      </svg>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <div style={{ fontSize: 12, color: mutedColor, marginBottom: 4 }}>{label}</div>
+        <svg ref={svgRef} width="150" height="150" viewBox="0 0 160 160"
+          style={{ cursor: 'pointer', touchAction: 'none', userSelect: 'none' }}
+          onMouseDown={onPointerDown}
+          onTouchStart={e => { onPointerDown(e); e.preventDefault() }}>
+          <circle cx="80" cy="80" r="64" fill="none" stroke={clr} strokeWidth="12" />
+          <circle cx="80" cy="80" r="64" fill="none" stroke={color} strokeWidth="12"
+            strokeDasharray={`${dash} ${CIRC - dash}`} strokeLinecap="round" transform="rotate(-90 80 80)" />
+          <circle cx={hx} cy={hy} r="8" fill={color} stroke={dark ? '#1a1a1a' : '#fff'} strokeWidth="2.5" />
+          <text x="80" y="77" textAnchor="middle" fontSize="15" fontWeight="500" fill={textColor}>{centerText}</text>
+          <text x="80" y="93" textAnchor="middle" fontSize="11" fill={mutedColor}>{subText}</text>
+        </svg>
+      </div>
     )
   }
-
-  const startMin = nowRef.current - agoMin
-  const startDisplay = agoMin === 0 ? 'now' : fmtTime(Math.round(startMin / 5) * 5)
-  const startSub = agoMin === 0 ? '' : `${agoMin}m ago`
 
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 6, marginBottom: 16 }}>
         {DUR_QUICK.map(m => (
           <button key={m} onClick={() => onDurChange(m)} style={{ padding: '6px 0', borderRadius: 20, border: `0.5px solid ${dur === m ? '#1D9E75' : dark ? '#444' : '#ddd'}`, background: dur === m ? '#1D9E7510' : 'transparent', color: dur === m ? '#1D9E75' : mutedColor, fontSize: 12, cursor: 'pointer', fontWeight: dur === m ? 500 : 400 }}>
-            {m < 60 ? `${m}m` : m === 60 ? '1hr' : `${m / 60 % 1 === 0 ? m / 60 : '1.5'}hr`}
+            {m < 60 ? `${m}m` : m === 60 ? '1hr' : '1.5hr'}
           </button>
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 16, justifyContent: 'center', alignItems: 'flex-start' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-          <div style={{ fontSize: 12, color: mutedColor, marginBottom: 4 }}>Start time</div>
-          <ClockSVG id="svg-start" frac={agoMin / MAX_AGO} color="#185FA5" centerText={startDisplay} subText={startSub} onStart="start" />
-          <div style={{ fontSize: 11, color: mutedColor }}>{fmtTime(startMin)}</div>
-        </div>
-        <div style={{ paddingTop: 70, color: mutedColor, fontSize: 18 }}>→</div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-          <div style={{ fontSize: 12, color: mutedColor, marginBottom: 4 }}>Duration</div>
-          <ClockSVG id="svg-dur" frac={dur / MAX_DUR} color="#1D9E75" centerText={dur === 0 ? '0' : String(dur)} subText="min" onStart="dur" />
-          <div style={{ fontSize: 11, color: mutedColor }}>{fmtDur(dur)}</div>
-        </div>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'flex-start' }}>
+        <ClockFace svgRef={startSvgRef} frac={agoMin / MAX_AGO} color="#185FA5" label="Start time"
+          centerText={startDisplay} subText={startSub}
+          onPointerDown={e => { dragging.current = 'start'; applyDrag(e, 'start') }} />
+        <div style={{ paddingTop: 68, color: mutedColor, fontSize: 18 }}>→</div>
+        <ClockFace svgRef={durSvgRef} frac={dur / MAX_DUR} color="#1D9E75" label="Duration"
+          centerText={dur === 0 ? '0' : String(dur)} subText="min"
+          onPointerDown={e => { dragging.current = 'dur'; applyDrag(e, 'dur') }} />
       </div>
 
-      {(agoMin > 0 || dur > 0) && (
-        <div style={{ marginTop: 14, background: dark ? '#1e1e1e' : '#f5f5f5', borderRadius: 8, padding: '8px 14px', fontSize: 13, display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+      {mounted && (agoMin > 0 || dur > 0) && (
+        <div style={{ marginTop: 14, background: dark ? '#252525' : '#f0f0f0', borderRadius: 8, padding: '8px 14px', fontSize: 13, display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
           <strong style={{ color: textColor }}>{fmtTime(startMin)}</strong>
           <span style={{ color: mutedColor }}>→</span>
           <strong style={{ color: textColor }}>{fmtTime(startMin + dur)}</strong>
@@ -366,8 +369,8 @@ export default function App() {
   function startEdit(e) {
     setDraft({ ...e })
     setEditId(e.id)
-    setActAgo(e.actAgoMin || 0)
-    setActDur(e.actDur || 0)
+    setActAgo(e.actAgoMin ?? 0)
+    setActDur(e.actDur ?? 0)
     setShowForm(true)
     setActiveTab('dump')
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -457,9 +460,9 @@ export default function App() {
                 </div>
 
                 {draft.type === 'activity' && (
-                  <div style={{ borderTop: `1px solid ${border}`, paddingTop: 14, marginTop: 4 }}>
-                    <div style={{ fontSize: 12, color: textMuted, marginBottom: 12 }}>When did this happen?</div>
-                    <ActivityClock dark={dark} agoMin={actAgo} dur={actDur} onAgoChange={setActAgo} onDurChange={setActDur} />
+                  <div style={{ borderTop: `1px solid ${border}`, paddingTop: 14, marginTop: 4, background: dark ? '#1a1a1a' : '#fafafa', borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 12, color: textMuted, marginBottom: 12, fontWeight: 500 }}>⏱ When did this happen?</div>
+                    <ActivityClock key={editId || 'new'} dark={dark} agoMin={actAgo} dur={actDur} onAgoChange={setActAgo} onDurChange={setActDur} />
                   </div>
                 )}
 
