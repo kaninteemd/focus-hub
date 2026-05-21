@@ -14,12 +14,9 @@ const urgencyColors = { high: '#E24B4A', medium: '#EF9F27', low: '#639922' }
 const priorityColors = { high: '#7F77DD', medium: '#378ADD', low: '#888780' }
 const statusColors = { pending: '#888780', 'in-progress': '#378ADD', done: '#0F6E56' }
 const PRESETS = [{ label: '25/5', work: 25, brk: 5 }, { label: '50/10', work: 50, brk: 10 }, { label: '90/20', work: 90, brk: 20 }]
-const DUR_QUICK = [15, 30, 45, 60, 90, 120]
-const MAX_DUR = 120
-const MAX_AGO = 120
-const CIRC = 2 * Math.PI * 64
+const SNAP = 5, PER_ROT = 120, MAX_ACT_MIN = 1440
 
-const mkEntry = () => ({ id: String(Date.now()), text: '', type: 'todo', mode: 'work', urgency: 'medium', priority: 'medium', status: 'pending', dueDate: '', dueTime: '', createdAt: new Date().toISOString(), notionPageId: null, notified: false, actStartMin: null, actDur: null, actAgoMin: null })
+const mkEntry = () => ({ id: String(Date.now()), text: '', type: 'todo', mode: 'work', urgency: 'medium', priority: 'medium', status: 'pending', dueDate: '', dueTime: '', createdAt: new Date().toISOString(), notionPageId: null, notified: false, actStartMin: null, actDur: null, actDate: null })
 
 const NotionLogo = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
@@ -46,74 +43,88 @@ async function notionAPI(body) {
 }
 
 const fmtTimer = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
-const fmtTime = totalMin => {
-  const t = ((totalMin % 1440) + 1440) % 1440
-  const h = Math.floor(t / 60), m = t % 60
+const fmtTime = m => {
+  const t = ((m % 1440) + 1440) % 1440, h = Math.floor(t / 60), mn = t % 60
   const ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12 || 12
-  return `${h12}:${m < 10 ? '0' : ''}${m} ${ap}`
+  return `${h12}:${mn < 10 ? '0' : ''}${mn} ${ap}`
 }
-const fmtDur = m => {
-  if (!m || m === 0) return ''
-  if (m < 60) return `${m} min`
-  if (m % 60 === 0) return `${m / 60} hr`
-  return `${Math.floor(m / 60)}h ${m % 60}m`
+const fmtAmt = a => {
+  if (!a) return '0 min'
+  if (a < 60) return `${a} min`
+  if (a % 60 === 0) return `${a / 60} hr`
+  return `${Math.floor(a / 60)}h ${a % 60}m`
 }
 const fmtCreated = iso => {
   const d = new Date(iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' +
-    d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+}
+const fmtDateLabel = iso => {
+  const d = new Date(iso + 'T00:00:00')
+  const today = new Date(); today.setHours(0,0,0,0)
+  const yesterday = new Date(today); yesterday.setDate(today.getDate()-1)
+  if (d.toDateString() === today.toDateString()) return 'Today'
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 const badge = (label, color) => (
   <span style={{ background: color + '22', color, border: `1px solid ${color}44`, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 500 }}>{label}</span>
 )
 
-// ── Activity Clock Component ──────────────────────────────────────────────────
-function ActivityClock({ dark, agoMin, dur, onAgoChange, onDurChange }) {
-  const [nowMin, setNowMin] = useState(0)
+// ── Activity Clock ────────────────────────────────────────────────────────────
+function ActivityClock({ dark, onSave }) {
   const [mounted, setMounted] = useState(false)
-  const dragging = useRef(null)
-  const startSvgRef = useRef(null)
-  const durSvgRef = useRef(null)
+  const [nowMin, setNowMin] = useState(0)
+  const [sTotalAngle, setSTotalAngle] = useState(0)
+  const [dTotalAngle, setDTotalAngle] = useState(0)
+  const [actDate, setActDate] = useState('')
+  const sLastAngle = useRef(null), dLastAngle = useRef(null)
+  const sDragging = useRef(false), dDragging = useRef(false)
+  const startSvgRef = useRef(null), durSvgRef = useRef(null)
 
   useEffect(() => {
     const n = new Date()
-    setNowMin(n.getHours() * 60 + n.getMinutes())
+    const raw = n.getHours() * 60 + n.getMinutes()
+    const snapped = Math.round(raw / SNAP) * SNAP
+    setNowMin(snapped)
+    setActDate(n.toISOString().split('T')[0])
     setMounted(true)
   }, [])
 
-  const clr = dark ? '#333' : '#eee'
-  const textColor = dark ? '#e0e0e0' : '#111'
-  const mutedColor = dark ? '#aaa' : '#666'
+  const CX = 105, CY = 105, R2 = 84, CIRC2 = 2 * Math.PI * R2
 
-  function snapStart(rawAgo) {
-    const rawStart = nowMin - rawAgo
-    const snapped = Math.round(rawStart / 5) * 5
-    return Math.max(0, Math.min(MAX_AGO, nowMin - snapped))
-  }
+  function pt(deg) { const r = deg * Math.PI / 180; return [CX + R2 * Math.sin(r), CY - R2 * Math.cos(r)] }
 
-  function getAngle(e, el) {
+  function pAngle(e, el) {
     if (!el) return 0
-    const rect = el.getBoundingClientRect()
-    const pt = e.touches ? e.touches[0] : e
-    let a = Math.atan2(pt.clientY - (rect.top + rect.height / 2), pt.clientX - (rect.left + rect.width / 2)) * 180 / Math.PI + 90
-    if (a < 0) a += 360
-    return a
+    const rect = el.getBoundingClientRect(), p = e.touches ? e.touches[0] : e
+    return Math.atan2(p.clientX - (rect.left + rect.width / 2), -(p.clientY - (rect.top + rect.height / 2))) * 180 / Math.PI
   }
 
-  function applyDrag(e, type) {
-    const el = type === 'start' ? startSvgRef.current : durSvgRef.current
-    const angle = getAngle(e, el)
-    if (type === 'start') {
-      onAgoChange(snapStart((angle / 360) * MAX_AGO))
-    } else {
-      onDurChange(Math.max(0, Math.min(MAX_DUR, Math.round((angle / 360) * MAX_DUR / 5) * 5)))
-    }
-  }
+  const startOffsetMin = useCallback((angle) => {
+    const raw = (angle / 360) * PER_ROT
+    const snapped = Math.round((nowMin + raw) / SNAP) * SNAP
+    return Math.max(-MAX_ACT_MIN, Math.min(MAX_ACT_MIN, snapped - nowMin))
+  }, [nowMin])
+
+  const durMin = useCallback((angle) => {
+    const raw = (angle / 360) * PER_ROT
+    return Math.max(0, Math.min(MAX_ACT_MIN, Math.round(raw / SNAP) * SNAP))
+  }, [])
 
   useEffect(() => {
-    const onMove = e => { if (dragging.current) { applyDrag(e, dragging.current); e.preventDefault() } }
-    const onUp = () => { dragging.current = null }
+    const onMove = e => {
+      const applyDelta = (lastRef, totalSetter, clampMin, clampMax, svgRef) => {
+        const a = pAngle(e, svgRef.current)
+        let d = a - lastRef.current
+        if (d > 180) d -= 360; if (d < -180) d += 360
+        totalSetter(prev => Math.max(clampMin, Math.min(clampMax, prev + d)))
+        lastRef.current = a
+      }
+      if (sDragging.current) applyDelta(sLastAngle, setSTotalAngle, -4320, 4320, startSvgRef)
+      if (dDragging.current) applyDelta(dLastAngle, setDTotalAngle, 0, 4320, durSvgRef)
+    }
+    const onUp = () => { sDragging.current = false; dDragging.current = false; sLastAngle.current = null; dLastAngle.current = null }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('touchmove', onMove, { passive: false })
     window.addEventListener('mouseup', onUp)
@@ -124,60 +135,179 @@ function ActivityClock({ dark, agoMin, dur, onAgoChange, onDurChange }) {
       window.removeEventListener('mouseup', onUp)
       window.removeEventListener('touchend', onUp)
     }
-  }, [nowMin, agoMin, dur])
+  }, [])
 
-  const startMin = nowMin - agoMin
-  const startDisplay = !mounted ? '--:--' : agoMin === 0 ? 'now' : fmtTime(Math.round(startMin / 5) * 5)
-  const startSub = agoMin === 0 ? '' : `${agoMin}m ago`
+  const sOffset = startOffsetMin(sTotalAngle)
+  const dMin = durMin(dTotalAngle)
+  const startMin = nowMin + sOffset
+  const endMin = startMin + dMin
+  const isPast = sOffset < 0, isFuture = sOffset > 0, isNow = sOffset === 0
+  const sColor = isPast ? '#BA7517' : '#185FA5'
 
-  function ClockFace({ svgRef, frac, color, label, centerText, subText, onPointerDown }) {
-    const dash = frac * CIRC
-    const angle = (frac * 360 - 90) * Math.PI / 180
-    const hx = 80 + 64 * Math.cos(angle), hy = 80 + 64 * Math.sin(angle)
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-        <div style={{ fontSize: 12, color: mutedColor, marginBottom: 4 }}>{label}</div>
-        <svg ref={svgRef} width="150" height="150" viewBox="0 0 160 160"
-          style={{ cursor: 'pointer', touchAction: 'none', userSelect: 'none' }}
-          onMouseDown={onPointerDown}
-          onTouchStart={e => { onPointerDown(e); e.preventDefault() }}>
-          <circle cx="80" cy="80" r="64" fill="none" stroke={clr} strokeWidth="12" />
-          <circle cx="80" cy="80" r="64" fill="none" stroke={color} strokeWidth="12"
-            strokeDasharray={`${dash} ${CIRC - dash}`} strokeLinecap="round" transform="rotate(-90 80 80)" />
-          <circle cx={hx} cy={hy} r="8" fill={color} stroke={dark ? '#1a1a1a' : '#fff'} strokeWidth="2.5" />
-          <text x="80" y="77" textAnchor="middle" fontSize="15" fontWeight="500" fill={textColor}>{centerText}</text>
-          <text x="80" y="93" textAnchor="middle" fontSize="11" fill={mutedColor}>{subText}</text>
-        </svg>
-      </div>
-    )
+  // Start arc path
+  function buildStartArc(totalAngle) {
+    if (Math.abs(totalAngle) < 0.5) return ''
+    const laps = Math.floor(Math.abs(totalAngle) / 360)
+    const rem = ((Math.abs(totalAngle) % 360) + 360) % 360
+    const sweep = totalAngle > 0 ? 1 : 0
+    let d = ''
+    const [sx, sy] = pt(0)
+    for (let i = 0; i < laps; i++) {
+      const [mx, my] = pt(totalAngle < 0 ? -180 : 180)
+      d += `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R2} ${R2} 0 0 ${sweep} ${mx.toFixed(2)} ${my.toFixed(2)} A ${R2} ${R2} 0 0 ${sweep} ${sx.toFixed(2)} ${sy.toFixed(2)} `
+    }
+    if (rem > 0.5) {
+      const da = totalAngle < 0 ? -rem : rem
+      const [ex, ey] = pt(da)
+      d += `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R2} ${R2} 0 ${rem > 180 ? 1 : 0} ${sweep} ${ex.toFixed(2)} ${ey.toFixed(2)}`
+    }
+    return d
   }
+
+  const sRem = ((Math.abs(sTotalAngle) % 360) + 360) % 360
+  const sHandleAngle = sTotalAngle < 0 ? -sRem : sRem
+  const [shx, shy] = pt(sHandleAngle)
+  const sLaps = Math.floor(Math.abs(sTotalAngle) / 360)
+
+  const dRem = (dTotalAngle % 360 + 360) % 360
+  const dFrac = dRem / 360
+  const dDash = dFrac * CIRC2
+  const dLaps = Math.floor(dTotalAngle / 360)
+  const dHandleAngle = dRem - 90
+  const dHandleRad = dHandleAngle * Math.PI / 180
+  const dhx = CX + R2 * Math.cos(dHandleRad), dhy = CY + R2 * Math.sin(dHandleRad)
+
+  const mutedColor = dark ? '#aaa' : '#666'
+  const textColor = dark ? '#e0e0e0' : '#111'
+  const border = dark ? '#333' : '#ddd'
+  const inputBg = dark ? '#2a2a2a' : '#fff'
+  const bgSecondary = dark ? '#1e1e1e' : '#f5f5f5'
+
+  // Dropdowns
+  const dateOptions = []
+  for (let i = -7; i <= 7; i++) {
+    const d = new Date(); d.setDate(d.getDate() + i)
+    dateOptions.push(d.toISOString().split('T')[0])
+  }
+  const startOptions = [], endOptions = [], durOptions = []
+  for (let m = nowMin - MAX_ACT_MIN; m <= nowMin + MAX_ACT_MIN; m += SNAP) { startOptions.push(m) }
+  for (let m = nowMin - MAX_ACT_MIN; m <= nowMin + MAX_ACT_MIN; m += SNAP) { endOptions.push(m) }
+  for (let m = 0; m <= MAX_ACT_MIN; m += SNAP) { durOptions.push(m) }
+
+  const selStyle = { fontSize: 12, padding: '3px 5px', borderRadius: 6, border: `1px solid ${border}`, color: textColor, background: inputBg }
+
+  function onSelStart(v) {
+    const offset = parseInt(v) - nowMin
+    setSTotalAngle((offset / PER_ROT) * 360)
+  }
+  function onSelEnd(v) {
+    const end = parseInt(v), d = Math.max(0, Math.min(MAX_ACT_MIN, end - startMin))
+    setDTotalAngle((d / PER_ROT) * 360)
+  }
+  function onSelDur(v) {
+    setDTotalAngle((parseInt(v) / PER_ROT) * 360)
+  }
+
+  const closestVal = (opts, target) => opts.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a)
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 6, marginBottom: 16 }}>
-        {DUR_QUICK.map(m => (
-          <button key={m} onClick={() => onDurChange(m)} style={{ padding: '6px 0', borderRadius: 20, border: `0.5px solid ${dur === m ? '#1D9E75' : dark ? '#444' : '#ddd'}`, background: dur === m ? '#1D9E7510' : 'transparent', color: dur === m ? '#1D9E75' : mutedColor, fontSize: 12, cursor: 'pointer', fontWeight: dur === m ? 500 : 400 }}>
-            {m < 60 ? `${m}m` : m === 60 ? '1hr' : '1.5hr'}
-          </button>
-        ))}
-      </div>
-
+      {/* Clocks */}
       <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'flex-start' }}>
-        <ClockFace svgRef={startSvgRef} frac={agoMin / MAX_AGO} color="#185FA5" label="Start time"
-          centerText={startDisplay} subText={startSub}
-          onPointerDown={e => { dragging.current = 'start'; applyDrag(e, 'start') }} />
-        <div style={{ paddingTop: 68, color: mutedColor, fontSize: 18 }}>→</div>
-        <ClockFace svgRef={durSvgRef} frac={dur / MAX_DUR} color="#1D9E75" label="Duration"
-          centerText={dur === 0 ? '0' : String(dur)} subText="min"
-          onPointerDown={e => { dragging.current = 'dur'; applyDrag(e, 'dur') }} />
+        {/* Start clock */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 12, color: mutedColor }}>Start time</div>
+          <svg ref={startSvgRef} width="145" height="145" viewBox="0 0 210 210"
+            style={{ cursor: 'pointer', touchAction: 'none', userSelect: 'none', overflow: 'visible' }}
+            onMouseDown={e => { sDragging.current = true; sLastAngle.current = pAngle(e, startSvgRef.current); e.preventDefault() }}
+            onTouchStart={e => { sDragging.current = true; sLastAngle.current = pAngle(e, startSvgRef.current); e.preventDefault() }}>
+            <circle cx={CX} cy={CY} r={R2} fill="none" stroke={dark ? '#333' : '#eee'} strokeWidth="14" />
+            <path d={buildStartArc(sTotalAngle)} fill="none" strokeWidth="14" strokeLinecap="round" stroke={sColor} />
+            <circle cx={CX} cy={CY - R2} r="5" fill={dark ? '#444' : '#ccc'} />
+            <circle cx={shx.toFixed(3)} cy={shy.toFixed(3)} r="10" fill={isNow ? (dark ? '#444' : '#ccc') : sColor} stroke={dark ? '#1a1a1a' : '#fff'} strokeWidth="3" />
+            <text x={CX} y="92" textAnchor="middle" fontSize="16" fontWeight="500" fill={isNow ? mutedColor : textColor}>{!mounted ? '--:--' : isNow ? 'now' : fmtTime(startMin)}</text>
+            <text x={CX} y="108" textAnchor="middle" fontSize="11" fill={mutedColor}>{Math.abs(sOffset) > 0 ? fmtAmt(Math.abs(sOffset)) : ''}</text>
+            <text x={CX} y="122" textAnchor="middle" fontSize="10" fill={mutedColor}>{isPast ? 'ago' : isFuture ? 'from now' : ''}</text>
+            <text x={CX} y="138" textAnchor="middle" fontSize="9" fill={dark ? '#555' : '#bbb'}>{sLaps > 0 ? `${sLaps} lap${sLaps > 1 ? 's' : ''}` : ''}</text>
+          </svg>
+          <div style={{ display: 'flex', gap: 8, fontSize: 11, color: mutedColor }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#BA7517', display: 'inline-block' }} />past</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#185FA5', display: 'inline-block' }} />future</span>
+          </div>
+        </div>
+
+        <div style={{ paddingTop: 60, color: mutedColor, fontSize: 18 }}>→</div>
+
+        {/* Duration clock */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 12, color: mutedColor }}>Duration</div>
+          <svg ref={durSvgRef} width="145" height="145" viewBox="0 0 210 210"
+            style={{ cursor: 'pointer', touchAction: 'none', userSelect: 'none', overflow: 'visible' }}
+            onMouseDown={e => { dDragging.current = true; dLastAngle.current = pAngle(e, durSvgRef.current); e.preventDefault() }}
+            onTouchStart={e => { dDragging.current = true; dLastAngle.current = pAngle(e, durSvgRef.current); e.preventDefault() }}>
+            <circle cx={CX} cy={CY} r={R2} fill="none" stroke={dark ? '#333' : '#eee'} strokeWidth="14" />
+            {dLaps > 0 && <circle cx={CX} cy={CY} r={R2} fill="none" stroke="#1D9E75" strokeWidth="14" opacity={Math.min(dLaps * 0.15, 0.5)} transform={`rotate(-90 ${CX} ${CY})`} strokeDasharray={`${CIRC2} 0`} />}
+            <circle cx={CX} cy={CY} r={R2} fill="none" stroke="#1D9E75" strokeWidth="14"
+              strokeDasharray={`${dDash} ${CIRC2 - dDash}`} strokeLinecap="round" transform={`rotate(-90 ${CX} ${CY})`} />
+            <circle cx={dhx.toFixed(3)} cy={dhy.toFixed(3)} r="10" fill={dMin > 0 ? '#1D9E75' : (dark ? '#444' : '#ccc')} stroke={dark ? '#1a1a1a' : '#fff'} strokeWidth="3" />
+            <text x={CX} y="95" textAnchor="middle" fontSize="16" fontWeight="500" fill={textColor}>{dMin === 0 ? '0' : dMin < 60 ? dMin : dMin % 60 === 0 ? `${dMin / 60}` : `${Math.floor(dMin / 60)}:${String(dMin % 60).padStart(2, '0')}`}</text>
+            <text x={CX} y="112" textAnchor="middle" fontSize="11" fill={mutedColor}>{dMin === 0 ? 'min' : dMin < 60 ? 'min' : dMin % 60 === 0 ? 'hr' : 'hr min'}</text>
+            <text x={CX} y="128" textAnchor="middle" fontSize="9" fill={dark ? '#555' : '#bbb'}>{dLaps > 0 ? `${dLaps} lap${dLaps > 1 ? 's' : ''}` : ''}</text>
+          </svg>
+          <div style={{ fontSize: 11, color: mutedColor }}>2 hr / lap · max 24 hr</div>
+        </div>
       </div>
 
-      {mounted && (agoMin > 0 || dur > 0) && (
-        <div style={{ marginTop: 14, background: dark ? '#252525' : '#f0f0f0', borderRadius: 8, padding: '8px 14px', fontSize: 13, display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <strong style={{ color: textColor }}>{fmtTime(startMin)}</strong>
-          <span style={{ color: mutedColor }}>→</span>
-          <strong style={{ color: textColor }}>{fmtTime(startMin + dur)}</strong>
-          <span style={{ background: '#1D9E7518', color: '#0F6E56', borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 500 }}>{fmtDur(dur)}</span>
+      {/* Summary bar */}
+      <div style={{ marginTop: 14, background: bgSecondary, borderRadius: 10, padding: '10px 12px' }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+          {/* Date */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+            <div style={{ fontSize: 10, color: mutedColor }}>Date</div>
+            <select value={actDate} onChange={e => setActDate(e.target.value)} style={selStyle}>
+              {dateOptions.map(d => <option key={d} value={d}>{fmtDateLabel(d)}</option>)}
+            </select>
+          </div>
+          <div style={{ color: mutedColor, fontSize: 13, paddingTop: 14 }}>·</div>
+          {/* Start */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+            <div style={{ fontSize: 10, color: mutedColor }}>Start</div>
+            <select value={closestVal(startOptions, startMin)} onChange={e => onSelStart(e.target.value)} style={{ ...selStyle, color: isPast ? '#BA7517' : isFuture ? '#185FA5' : textColor }}>
+              {startOptions.map(m => <option key={m} value={m}>{fmtTime(m)}</option>)}
+            </select>
+          </div>
+          <div style={{ color: mutedColor, fontSize: 13, paddingTop: 14 }}>→</div>
+          {/* End */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+            <div style={{ fontSize: 10, color: mutedColor }}>End</div>
+            <select value={closestVal(endOptions, endMin)} onChange={e => onSelEnd(e.target.value)} style={selStyle}>
+              {endOptions.map(m => <option key={m} value={m}>{fmtTime(m)}</option>)}
+            </select>
+          </div>
+          <div style={{ color: mutedColor, fontSize: 13, paddingTop: 14 }}>·</div>
+          {/* Duration */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+            <div style={{ fontSize: 10, color: mutedColor }}>Duration</div>
+            <select value={closestVal(durOptions, dMin)} onChange={e => onSelDur(e.target.value)} style={selStyle}>
+              {durOptions.map(m => <option key={m} value={m}>{fmtAmt(m)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {mounted && (sOffset !== 0 || dMin > 0) && (
+          <div style={{ textAlign: 'center', marginTop: 8, fontSize: 12, color: mutedColor }}>
+            <span style={{ color: sColor, fontWeight: 500 }}>{fmtTime(startMin)}</span>
+            <span style={{ margin: '0 6px' }}>→</span>
+            <span style={{ fontWeight: 500, color: textColor }}>{fmtTime(endMin)}</span>
+            {dMin > 0 && <span style={{ marginLeft: 8, background: '#1D9E7518', color: '#0F6E56', borderRadius: 20, padding: '1px 8px', fontSize: 11 }}>{fmtAmt(dMin)}</span>}
+            <span style={{ marginLeft: 8, fontSize: 11, color: mutedColor }}>{fmtDateLabel(actDate)}</span>
+          </div>
+        )}
+      </div>
+
+      {onSave && (
+        <div style={{ marginTop: 10, fontSize: 11, color: mutedColor, textAlign: 'center' }}>
+          Activity time will be saved with this entry
         </div>
       )}
     </div>
@@ -202,7 +332,7 @@ function EntryCard({ entry: e, onEdit, onDelete, onCycleStatus, onLink, mode, da
             {e.type === 'todo' && <>{badge(`U:${e.urgency}`, urgencyColors[e.urgency])}{badge(`P:${e.priority}`, priorityColors[e.priority])}{badge(e.status, statusColors[e.status])}</>}
             {e.type === 'activity' && e.actDur > 0 && (
               <span style={{ fontSize: 11, color: mutedColor }}>
-                {e.actStartMin != null ? `${fmtTime(e.actStartMin)} → ${fmtTime(e.actStartMin + e.actDur)} · ` : ''}{fmtDur(e.actDur)}
+                {e.actDate ? `${fmtDateLabel(e.actDate)} · ` : ''}{e.actStartMin != null ? `${fmtTime(e.actStartMin)} → ${fmtTime(e.actStartMin + e.actDur)} · ` : ''}{fmtAmt(e.actDur)}
               </span>
             )}
             {mode === 'mixed' && badge(e.mode, mc[e.mode])}
@@ -235,8 +365,7 @@ export default function App() {
   const [showForm, setShowForm] = useState(false)
   const [draft, setDraft] = useState(mkEntry())
   const [editId, setEditId] = useState(null)
-  const [actAgo, setActAgo] = useState(0)
-  const [actDur, setActDur] = useState(0)
+  const [clockKey, setClockKey] = useState(0)
   const [timerRunning, setTimerRunning] = useState(false)
   const [timerPhase, setTimerPhase] = useState('work')
   const [timerSecs, setTimerSecs] = useState(25 * 60)
@@ -246,6 +375,7 @@ export default function App() {
   const [pulling, setPulling] = useState(false)
   const intervalRef = useRef(null)
   const notifRef = useRef(false)
+  const clockRef = useRef({ sAngle: 0, dAngle: 0, date: '', nowMin: 0 })
 
   const bg = dark ? '#121212' : '#ffffff'
   const bgSecondary = dark ? '#1e1e1e' : '#f5f5f5'
@@ -260,7 +390,6 @@ export default function App() {
   }, [])
 
   const preset = PRESETS[presetIdx] || PRESETS[0]
-
   useEffect(() => { setTimerSecs((timerPhase === 'work' ? preset.work : preset.brk) * 60) }, [presetIdx, timerPhase])
 
   useEffect(() => {
@@ -308,7 +437,6 @@ export default function App() {
     if (filterUrgency !== 'all' && e.urgency !== filterUrgency) return false
     return true
   })
-
   const urgent = visible.filter(e => e.urgency === 'high' && e.status !== 'done')
   const inProg = visible.filter(e => e.status === 'in-progress')
 
@@ -316,18 +444,18 @@ export default function App() {
     if (!draft.text.trim()) return
     const entryMode = mode === 'mixed' ? draft.mode : mode
     const now = new Date()
-    const nowMin = now.getHours() * 60 + now.getMinutes()
-    const actStartMin = draft.type === 'activity' ? nowMin - actAgo : null
+    const snappedNow = Math.round((now.getHours() * 60 + now.getMinutes()) / SNAP) * SNAP
+    const sOffset = Math.max(-MAX_ACT_MIN, Math.min(MAX_ACT_MIN, Math.round(((clockRef.current.sAngle / 360) * PER_ROT + snappedNow) / SNAP) * SNAP - snappedNow))
+    const dMin = Math.max(0, Math.min(MAX_ACT_MIN, Math.round((clockRef.current.dAngle / 360) * PER_ROT / SNAP) * SNAP))
     const updated = editId
-      ? { ...entries.find(e => e.id === editId), ...draft, mode: entryMode, actStartMin, actDur: draft.type === 'activity' ? actDur : null, actAgoMin: draft.type === 'activity' ? actAgo : null }
-      : { ...draft, id: String(Date.now()), createdAt: now.toISOString(), mode: entryMode, actStartMin, actDur: draft.type === 'activity' ? actDur : null, actAgoMin: draft.type === 'activity' ? actAgo : null }
+      ? { ...entries.find(e => e.id === editId), ...draft, mode: entryMode, actStartMin: draft.type === 'activity' ? snappedNow + sOffset : null, actDur: draft.type === 'activity' ? dMin : null, actDate: draft.type === 'activity' ? clockRef.current.date : null }
+      : { ...draft, id: String(Date.now()), createdAt: now.toISOString(), mode: entryMode, actStartMin: draft.type === 'activity' ? snappedNow + sOffset : null, actDur: draft.type === 'activity' ? dMin : null, actDate: draft.type === 'activity' ? clockRef.current.date : null }
     if (editId) setEntries(prev => prev.map(e => e.id === editId ? updated : e))
     else setEntries(prev => [updated, ...prev])
-    setDraft(mkEntry()); setShowForm(false); setEditId(null); setActAgo(0); setActDur(0)
+    setDraft(mkEntry()); setShowForm(false); setEditId(null); setClockKey(k => k + 1)
     try {
-      if (updated.notionPageId) {
-        await notionAPI({ action: 'update', entry: updated })
-      } else {
+      if (updated.notionPageId) await notionAPI({ action: 'update', entry: updated })
+      else {
         const res = await notionAPI({ action: 'create', entry: updated })
         if (res.notionPageId) setEntries(prev => prev.map(e => e.id === updated.id ? { ...e, notionPageId: res.notionPageId } : e))
       }
@@ -367,12 +495,8 @@ export default function App() {
   }
 
   function startEdit(e) {
-    setDraft({ ...e })
-    setEditId(e.id)
-    setActAgo(e.actAgoMin ?? 0)
-    setActDur(e.actDur ?? 0)
-    setShowForm(true)
-    setActiveTab('dump')
+    setDraft({ ...e }); setEditId(e.id); setShowForm(true); setActiveTab('dump')
+    setClockKey(k => k + 1)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function deleteEntry(id) { setEntries(prev => prev.filter(e => e.id !== id)) }
@@ -393,7 +517,6 @@ export default function App() {
   return (
     <div style={{ background: bg, minHeight: '100vh', color: text, fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ maxWidth: 700, margin: '0 auto', padding: '1rem 0.75rem' }}>
-
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <span style={{ fontWeight: 500, fontSize: 18, color: text }}>🧠 Focus Hub</span>
@@ -403,9 +526,7 @@ export default function App() {
                 {modeIcons[m]} {m.charAt(0).toUpperCase() + m.slice(1)}
               </button>
             ))}
-            <button onClick={() => setDark(d => !d)} style={{ marginLeft: 4, padding: '5px 10px', borderRadius: 8, border: `1px solid ${border}`, background: 'transparent', cursor: 'pointer', fontSize: 16 }}>
-              {dark ? '☀️' : '🌙'}
-            </button>
+            <button onClick={() => setDark(d => !d)} style={{ marginLeft: 4, padding: '5px 10px', borderRadius: 8, border: `1px solid ${border}`, background: 'transparent', cursor: 'pointer', fontSize: 16 }}>{dark ? '☀️' : '🌙'}</button>
           </div>
         </div>
 
@@ -436,17 +557,14 @@ export default function App() {
               <Sel val={filterType} set={setFilterType} opts={['all', ...TYPES]} />
               <Sel val={filterStatus} set={setFilterStatus} opts={['all', ...STATUS]} />
               <Sel val={filterUrgency} set={setFilterUrgency} opts={['all', ...URGENCY]} />
-              <button onClick={() => { setShowForm(!showForm); setEditId(null); setDraft({ ...mkEntry(), mode: mode === 'mixed' ? 'work' : mode }); setActAgo(0); setActDur(0) }} style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 8, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>
-                + Add entry
-              </button>
+              <button onClick={() => { setShowForm(!showForm); setEditId(null); setDraft({ ...mkEntry(), mode: mode === 'mixed' ? 'work' : mode }); setClockKey(k => k + 1) }} style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 8, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>+ Add entry</button>
             </div>
 
             {showForm && (
               <div style={{ background: bgSecondary, borderRadius: 12, border: `1px solid ${border}`, padding: '1rem', marginBottom: '1rem' }}>
-                {editId && <div style={{ background: '#185FA510', border: '0.5px solid #185FA544', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#185FA5', marginBottom: 10 }}>✏️ Editing entry — make changes and save</div>}
+                {editId && <div style={{ background: '#185FA510', border: '0.5px solid #185FA544', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#185FA5', marginBottom: 10 }}>✏️ Editing entry</div>}
                 <textarea value={draft.text} onChange={e => setDraft(d => ({ ...d, text: e.target.value }))} placeholder="Brain dump here..." style={{ width: '100%', minHeight: 70, borderRadius: 8, border: `1px solid ${border}`, padding: '8px 10px', fontSize: 14, resize: 'vertical', boxSizing: 'border-box', background: inputBg, color: text, fontFamily: 'system-ui, sans-serif' }} />
                 <div style={{ fontSize: 11, color: dark ? '#555' : '#bbb', marginTop: 4, marginBottom: 10 }}>{fmtCreated(draft.createdAt || new Date().toISOString())}</div>
-
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Type</label><Sel val={draft.type} set={v => setDraft(d => ({ ...d, type: v }))} opts={TYPES} colors={typeColors} /></div>
                   {mode === 'mixed' && <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Context</label><Sel val={draft.mode} set={v => setDraft(d => ({ ...d, mode: v }))} opts={['work', 'life']} /></div>}
@@ -458,17 +576,15 @@ export default function App() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><label style={{ fontSize: 11, color: textMuted }}>Due time</label><input type="time" value={draft.dueTime} onChange={e => setDraft(d => ({ ...d, dueTime: e.target.value }))} style={selStyle} /></div>
                   </>}
                 </div>
-
                 {draft.type === 'activity' && (
-                  <div style={{ borderTop: `1px solid ${border}`, paddingTop: 14, marginTop: 4, background: dark ? '#1a1a1a' : '#fafafa', borderRadius: 10, padding: 14 }}>
+                  <div style={{ borderTop: `1px solid ${border}`, paddingTop: 14 }}>
                     <div style={{ fontSize: 12, color: textMuted, marginBottom: 12, fontWeight: 500 }}>⏱ When did this happen?</div>
-                    <ActivityClock key={editId || 'new'} dark={dark} agoMin={actAgo} dur={actDur} onAgoChange={setActAgo} onDurChange={setActDur} />
+                    <ActivityClock key={clockKey} dark={dark} onSave={true} />
                   </div>
                 )}
-
                 <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                   <button onClick={saveEntry} style={{ padding: '6px 16px', borderRadius: 8, background: modeColors[mode], color: '#fff', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>{editId ? 'Update' : 'Save & sync'}</button>
-                  <button onClick={() => { setShowForm(false); setEditId(null); setActAgo(0); setActDur(0) }} style={{ padding: '6px 12px', borderRadius: 8, background: 'transparent', border: `1px solid ${border}`, fontSize: 13, cursor: 'pointer', color: textMuted }}>Cancel</button>
+                  <button onClick={() => { setShowForm(false); setEditId(null); setClockKey(k => k + 1) }} style={{ padding: '6px 12px', borderRadius: 8, background: 'transparent', border: `1px solid ${border}`, fontSize: 13, cursor: 'pointer', color: textMuted }}>Cancel</button>
                 </div>
               </div>
             )}
